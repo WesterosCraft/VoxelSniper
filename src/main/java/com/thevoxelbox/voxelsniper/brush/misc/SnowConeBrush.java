@@ -34,6 +34,9 @@ import org.spongepowered.api.block.BlockType;
 import org.spongepowered.api.block.BlockTypes;
 import org.spongepowered.api.data.key.Keys;
 import org.spongepowered.api.data.property.block.SolidCubeProperty;
+import org.spongepowered.api.text.Text;
+import org.spongepowered.api.text.format.TextColors;
+import org.spongepowered.api.util.Color;
 import org.spongepowered.api.world.Location;
 import org.spongepowered.api.world.World;
 
@@ -51,6 +54,102 @@ import java.util.Optional;
 public class SnowConeBrush extends Brush {
 
     private void addSnow(final SnipeData v, Location<World> targetBlock) {
+        int brushSize;
+        int blockPositionX = targetBlock.getBlockX();
+        int blockPositionY = targetBlock.getBlockY();
+        int blockPositionZ = targetBlock.getBlockZ();
+        if (targetBlock.getBlockType() == BlockTypes.AIR) {
+            brushSize = 0;
+        }
+        else {
+            Location<World> sblk = SnowConeBrush.clampY(targetBlock.getExtent(), blockPositionX, blockPositionY, blockPositionZ);
+            Optional<Integer> height = sblk.get(Keys.LAYER);
+            if (height.isPresent()) {
+                brushSize = height.get().intValue() + 1;
+            }
+            else {
+                brushSize = 0;
+            }
+        }
+
+        final int brushSizeDoubled = 2 * brushSize;
+        final BlockState[][] snowcone = new BlockState[brushSizeDoubled + 1][brushSizeDoubled + 1]; // Will hold block IDs
+        final int[][] yOffset = new int[brushSizeDoubled + 1][brushSizeDoubled + 1];
+        // prime the arrays
+
+        for (int x = 0; x <= brushSizeDoubled; x++) {
+            for (int z = 0; z <= brushSizeDoubled; z++) {
+                boolean flag = true;
+                for (int i = 0; i < 10; i++) { // overlay
+                    if (flag) {
+                        Location<World> b = targetBlock.add(x - brushSize, -i, z - brushSize);
+                        Location<World> bminus1 = targetBlock.add(x - brushSize, -i - 1, z - brushSize);
+                        if ((b.getBlockType() == BlockTypes.AIR || b.getBlockType() == BlockTypes.SNOW_LAYER) && 
+                                bminus1.getBlockType() != BlockTypes.AIR && bminus1.getBlockType() != BlockTypes.SNOW_LAYER) {
+                            flag = false;
+                            yOffset[x][z] = i;
+                        }
+                    }
+                }
+                snowcone[x][z] = targetBlock.add(x - brushSize, -yOffset[x][z], z - brushSize).getBlock();
+            }
+        }
+
+        // figure out new snowheights
+        for (int x = 0; x <= brushSizeDoubled; x++) {
+            final double xSquared = Math.pow(x - brushSize, 2);
+
+            for (int z = 0; z <= 2 * brushSize; z++) {
+                final double zSquared = Math.pow(z - brushSize, 2);
+                final double dist = Math.pow(xSquared + zSquared, .5); // distance from center of array
+                final int snowData = brushSize - (int) Math.ceil(dist);
+
+                if (snowData >= 0) { // no funny business
+                    switch (snowData) {
+                        case 0:
+                            if (snowcone[x][z].getType() == BlockTypes.AIR) {
+                                snowcone[x][z] = BlockTypes.SNOW_LAYER.getDefaultState().with(Keys.LAYER, 0).get();
+                            }
+                            break;
+                        case 7: // Turn largest snowtile into snowblock
+                            if (snowcone[x][z].getType() == BlockTypes.SNOW_LAYER) {
+                                snowcone[x][z] = BlockTypes.SNOW.getDefaultState();
+                            }
+                            break;
+                        default: // Increase snowtile size, if smaller than target
+                            if (snowData > snowcone[x][z].get(Keys.LAYER).orElse(0)) {
+                                if (snowcone[x][z].getType() == BlockTypes.AIR) {
+                                    snowcone[x][z] = BlockTypes.SNOW_LAYER.getDefaultState().with(Keys.LAYER, snowData).get();
+                                }
+                                else if (snowcone[x][z].getType() == BlockTypes.SNOW_LAYER) {
+                                    snowcone[x][z] = snowcone[x][z].with(Keys.LAYER, snowData).get();
+                                }
+                            }
+                            else if (yOffset[x][z] > 0 && snowcone[x][z].getType() == BlockTypes.SNOW_LAYER) {
+                                snowcone[x][z] = snowcone[x][z].with(Keys.LAYER, snowcone[x][z].get(Keys.LAYER).orElse(0)+1).get();
+                                if (snowcone[x][z].get(Keys.LAYER).orElse(0) == 7) {
+                                    snowcone[x][z] = BlockTypes.SNOW.getDefaultState();
+                                }
+                            }
+                            break;
+                    }
+                }
+            }
+        }
+
+        this.undo = new Undo(GenericMath.floor((brushSize + 1) * (brushSize + 1)));
+
+        for (int x = 0; x <= brushSizeDoubled; x++) {
+            for (int z = 0; z <= brushSizeDoubled; z++) {
+                setBlockType(blockPositionX - brushSize + x, blockPositionY - yOffset[x][z], blockPositionZ - brushSize + z, snowcone[x][z].getType());
+                setBlockState(blockPositionX - brushSize + x, blockPositionY - yOffset[x][z], blockPositionZ - brushSize + z, snowcone[x][z]);
+            }
+        }
+        v.owner().storeUndo(this.undo);
+        this.undo = null;
+    }
+
+    private void addSnowOrig(final SnipeData v, Location<World> targetBlock) {
         double brushSize = v.getBrushSize();
         double brushSizeSquared = brushSize * brushSize;
 
@@ -122,14 +221,24 @@ public class SnowConeBrush extends Brush {
 
     @Override
     protected final void arrow(final SnipeData v) {
-        addSnow(v, this.targetBlock);
     }
 
     @Override
     protected final void powder(final SnipeData v) {
-        addSnow(v, this.lastBlock);
+        if (this.targetBlock.getBlockType() == BlockTypes.SNOW_LAYER) {
+            this.addSnow(v, this.targetBlock);
+        }
+        else {
+            Location<World> blockAbove = this.targetBlock.add(0,1,0);
+            if (blockAbove != null && blockAbove.getBlockType() == BlockTypes.AIR) {
+                addSnow(v, blockAbove);
+            }
+            else {
+                v.sendMessage(TextColors.RED, "Error: Center block neither snow nor air.");
+            }
+        }
     }
-
+    
     @Override
     public final void info(final Message vm) {
         vm.brushName("Snow Cone");
