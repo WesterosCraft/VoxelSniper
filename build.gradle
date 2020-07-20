@@ -24,7 +24,7 @@ defaultTasks 'build'
 
 group = 'com.thevoxelbox'
 archivesBaseName = 'VoxelSniper'
-version = '8.5.0-SNAPSHOT'
+version = '8.5.0-Westeros'
 
 sourceCompatibility = 1.8
 targetCompatibility = 1.8
@@ -40,7 +40,7 @@ repositories {
 
 // Common dependencies
 dependencies {
-    compile 'org.spongepowered:spongeapi:7.1.0'
+    compile 'org.spongepowered:spongeapi:7.2.0'
 }
 
 // Source compiler configuration
@@ -65,7 +65,7 @@ javadoc {
   options.charSet = 'UTF-8'
   options.links(
           'https://docs.oracle.com/javase/8/docs/api/',
-          'https://jd.spongepowered.org/7.1.0/'
+          'https://jd.spongepowered.org/7.2.0/'
   )
   // Disable the crazy super-strict doclint tool in Java 8
   options.addStringOption('Xdoclint:none', '-quiet')
